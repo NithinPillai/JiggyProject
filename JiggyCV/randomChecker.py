@@ -13,7 +13,7 @@ import pandas as pd
 import math
 
 # Configure detector with optimized settings
-base_options = python.BaseOptions(model_asset_path='pose_landmarker_heavy.task')
+base_options = python.BaseOptions(model_asset_path='./JiggyCV/pose_landmarker_heavy.task')
 options = vision.PoseLandmarkerOptions(
     base_options=base_options,
     output_segmentation_masks=True,  # Disable unused feature
@@ -152,39 +152,22 @@ def draw_landmarks_on_image(rgb_image, detection_result):
   return annotated_image  # No need to convert again as it's already in BGR
 
 
-# Check if video path is provided as command line argument
-if len(sys.argv) > 1:
-    video_path = sys.argv[1]
-else:
-    video_path = '/Users/rahulnair/Desktop/JIGGY/videos/white_jersey_bball.mp4'  # Default video path
-
-# Create output filename based on input video
-video_name = os.path.splitext(os.path.basename(video_path))[0]
-output_file = f"/Users/rahulnair/Desktop/JIGGY/pickleFolder/{video_name}_angles.pkl"  # Changed to _angles.pkl
-
-# Open the reference video
 cap = cv2.VideoCapture(0)
 
 if not cap.isOpened():
     print(f"Error: Could not open video file {video_path}")
     sys.exit(1)
 
-print(f"Processing video: {video_path}")
 
-# Get video properties
 frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS)
 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-print(f"Video dimensions: {frame_width}x{frame_height}, FPS: {fps}, Total frames: {total_frames}")
-
-# Calculate processing resolution for faster processing
 process_scale = 0.75  # Process at half resolution
 process_width = int(frame_width * process_scale)
 process_height = int(frame_height * process_scale)
 
-# Array to store all angle data
 all_angles = []  # Changed from all_landmarks to all_angles
 frame_count = 0
 
@@ -203,7 +186,7 @@ moving_average = {
             'left_shoulder_avg': 0
         }
 
-df = pd.read_csv('./anglesCSV/no_shirt_bball_angles.csv')
+df = pd.read_csv('./JiggyCV/anglesCSV/no_shirt_bball_angles.csv')
 reference_data = df.to_numpy()
 reference_data_iterator = 0;
 
@@ -358,35 +341,16 @@ while cap.isOpened():
                 cv2.imshow('Combined Pose and Segmentation', combined_image)
 
 
-            # Store frame number with angles
             all_angles.append({
                 'frame': frame_count,
                 'angles': res.copy()
             })
         else:
-            # Store empty angles if no landmarks detected
             all_angles.append({
                 'frame': frame_count,
                 'angles': None
             })
-    
-    # Print progress
-    # if frame_count % 100 == 0:
-        # print(f"Processed {frame_count}/{total_frames} frames ({frame_count/total_frames*100:.1f}%)")
+
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 cap.release()
-
-# Save angles to file
-with open(output_file, 'wb') as f:
-    pickle.dump(all_angles, f)
-
-print(f"Finished processing {frame_count} frames.")
-print(f"Calculated angles in {len([a for a in all_angles if a['angles'] is not None])} frames.")
-print(f"Angles saved to {output_file}")
-
-# Example of how to load the angles later
-print("\nTo load the angles in another script, use:")
-print("import pickle")
-print(f"with open('{output_file}', 'rb') as f:")
-print("    angles = pickle.load(f)")
