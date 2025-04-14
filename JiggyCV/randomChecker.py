@@ -56,7 +56,7 @@ def get_pose_angles(landmarks):
     """
     # Convert landmarks to numpy array for easier manipulation
     points = np.array([[landmark.x, landmark.y, landmark.z, landmark.visibility] for landmark in landmarks])
-    
+    print(points)
     # Define angles to track (using MediaPipe Pose indices)
     # Right elbow angle (shoulder, elbow, wrist)
 
@@ -152,10 +152,15 @@ def draw_landmarks_on_image(rgb_image, detection_result):
   return annotated_image  # No need to convert again as it's already in BGR
 
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(0) 
+
+# use if using an integrated webcam
+# import time
+# time.sleep(2.0)
+
 
 if not cap.isOpened():
-    print(f"Error: Could not open video file {video_path}")
+    print(f"Error: Could not open video file")
     sys.exit(1)
 
 
