@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="client.css"/>
+  <title>Jiggy Dance Challenge - Client</title>
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <a href="https://1025-2605-ad80-20-61fa-e8c8-d36a-17d7-77a6.ngrok-free.app/homePage.html" class="logo">
+      <img src="logo.svg" alt="Jiggy Logo"/>
+    </a>
+    <nav>
+      <!-- nav links here -->
+    </nav>
+  </header>
+  
+  <!-- Main Content -->
+  <div class="container">
+    <h1 id="header">Join the Challenge</h1>
+    
+    <div class="video-container">
+      <!-- Client's own camera feed -->
+      <div class="video-wrapper" id="yourCamera">
+        <p class="video-label">Your Camera</p>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+
+      <!-- Source video: uploaded by host -->
+      <div class="video-wrapper" id="sourceVid">
+        <p class="video-label">Source Video</p>
+        <video id="sourceVideo" autoplay playsinline controls muted>
+          <!-- Optionally, remove type or set to proper MIME if needed -->
+          <source id="videoSource" src="">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      
+      <!-- Host's camera feed -->
+      <div class="video-wrapper" id="friendCamera">
+        <p class="video-label">Host's Camera</p>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Load video from sessionStorage or wait for stream from host -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const videoUrl = sessionStorage.getItem("uploadedVideoUrl");
+      if (videoUrl) {
+        const videoSource = document.getElementById("videoSource");
+        videoSource.src = videoUrl;
+        const sourceVideo = document.getElementById("sourceVideo");
+        sourceVideo.load();
+        sourceVideo.play().catch(err => {
+          console.error("Error playing source video:", err);
+        });
+      }
+    });
+  </script>
+
+  <!-- Load Socket.IO -->
+  <script src="https://1025-2605-ad80-20-61fa-e8c8-d36a-17d7-77a6.ngrok-free.app/socket.io/socket.io.js"></script>
+
+  <!-- Client Socket.IO and WebRTC code -->
+  <script>
+    // Initialize Socket.IO connection
+    const socket = io("https://1025-2605-ad80-20-61fa-e8c8-d36a-17d7-77a6.ngrok-free.app");
+    
+    // Identify as client
+    socket.emit('role', 'client');
+
+    // Once the client page is loaded, notify the host that the client has joined.
+    // We do this inside a timeout to allow the video elements to load.
+    window.addEventListener("load", () => {
+      socket.emit("clientJoined");
+      console.log("clientJoined event emitted");
+    });
+
+    // Grab the client's video elements
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+
+    const peerConnection = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+    async function startLocalVideo() {
+      try {
+        // Prompt for camera access (client's own camera)
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        localVideo.srcObject = stream;
+        
+        // Set up the RTCPeerConnection for client.
+        
+        
+        // Add local tracks to the connection.
+        stream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, stream);
+        });
+        
+        // Reference to the source video element
+        const sourceVideo = document.getElementById('sourceVideo');
+    
+        // When remote stream arrives, handle different tracks
+        let receivedTracksCount = 0;
+        let hostCameraTrack = null;
+        let sourceVideoTrack = null;
+        
+        peerConnection.ontrack = event => {
+          if (event.streams && event.streams[0]) {
+            receivedTracksCount++;
+            console.log(`Received track ${receivedTracksCount}: ${event.track.kind}`);
+            
+            // Identify tracks by their kind (video/audio) and other properties
+            if (event.track.kind === 'video') {
+              // Store the track reference
+              if (!hostCameraTrack) {
+                hostCameraTrack = event.track;
+                // Set up remote video (host camera)
+                if (!remoteVideo.srcObject) {
+                  remoteVideo.srcObject = new MediaStream();
+                }
+                remoteVideo.srcObject.addTrack(hostCameraTrack);
+                console.log('Added host camera track to remote video element');
+              } 
+              else if (!sourceVideoTrack) {
+                sourceVideoTrack = event.track;
+                // Set up source video
+                if (!sourceVideo.srcObject) {
+                  sourceVideo.srcObject = new MediaStream();
+                }
+                sourceVideo.srcObject.addTrack(sourceVideoTrack);
+                console.log('Added source video track to source video element');
+                
+                // Attempt to play the source video
+                sourceVideo.play().catch(err => {
+                  console.error('Error playing source video:', err);
+                });
+              }
+              else {
+                console.log('Received additional video track, determining where to place it');
+                // If we already have both tracks, determine which one this is by comparing track settings
+                // For now, add it to source video as a fallback
+                if (!sourceVideo.srcObject) {
+                  sourceVideo.srcObject = new MediaStream();
+                }
+                sourceVideo.srcObject.addTrack(event.track);
+                console.log('Added additional video track to source video element');
+              }
+            }
+            // If we get audio tracks, add them to the appropriate stream
+            else if (event.track.kind === 'audio') {
+              console.log('Audio track received');
+              // Add audio track to remote video (host audio)
+              if (remoteVideo.srcObject) {
+                remoteVideo.srcObject.addTrack(event.track);
+              }
+            }
+          }
+        };
+        
+        // Listen for track ended events
+        peerConnection.addEventListener('removetrack', event => {
+          console.log('Track removed:', event.track.kind);
+        });
+        
+        // Listen for connection state changes
+        peerConnection.addEventListener('connectionstatechange', () => {
+          console.log('Connection state changed:', peerConnection.connectionState);
+        });
+        
+        // Listen for ICE connection state changes
+        peerConnection.addEventListener('iceconnectionstatechange', () => {
+          console.log('ICE connection state changed:', peerConnection.iceConnectionState);
+        });
+    
+        // ICE candidate handling: send candidates to the host.
+        peerConnection.onicecandidate = event => {
+          if (event.candidate) {
+            socket.emit('candidate', event.candidate);
+          }
+        };
+
+        // Create an offer and send it to the host.
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('offer', offer);
+    
+        // Listen for an answer from the host.
+        socket.on('answer', async answer => {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        });
+      
+        // Listen for ICE candidates from the host.
+        socket.on('candidate', candidate => {
+          peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        });
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+      }
+    }
+
+    startLocalVideo();
+    // In client's WebRTC setup
+    console.log(peerConnection);
+    peerConnection.ondatachannel = event => {
+      const dataChannel = event.channel;
+      console.log(dataChannel);
+      dataChannel.onmessage = event => {
+        if (event.data) {
+          sessionStorage.setItem("uploadedVideoUrl", event.data);
+          const videoElement = document.getElementById("sourceVideo");
+          videoElement.src = event.data;
+          videoElement.load();
+          console.log('Received and loaded video data');
+        }
+      };
+    };
+  </script>
+</body>
+</html>
+

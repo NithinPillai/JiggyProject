@@ -13,7 +13,7 @@ import pandas as pd
 import math
 
 # Configure detector with optimized settings
-base_options = python.BaseOptions(model_asset_path='./JiggyCV/pose_landmarker_heavy.task')
+base_options = python.BaseOptions(model_asset_path = "pose_landmarker_heavy.task")
 options = vision.PoseLandmarkerOptions(
     base_options=base_options,
     output_segmentation_masks=True,  # Disable unused feature
@@ -155,8 +155,8 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 cap = cv2.VideoCapture(0) 
 
 # use if using an integrated webcam
-# import time
-# time.sleep(2.0)
+import time
+time.sleep(2.0)
 
 
 if not cap.isOpened():
@@ -191,7 +191,7 @@ moving_average = {
             'left_shoulder_avg': 0
         }
 
-df = pd.read_csv('./JiggyCV/anglesCSV/no_shirt_bball_angles.csv')
+df = pd.read_csv('./anglesCSV/no_shirt_bball_angles.csv')
 reference_data = df.to_numpy()
 reference_data_iterator = 0;
 

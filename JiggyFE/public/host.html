@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="host.css"/>
+  <title>Jiggy Dance Challenge - Host</title>
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <a href="https://1025-2605-ad80-20-61fa-e8c8-d36a-17d7-77a6.ngrok-free.app/homePage.html" class="logo">
+      <img src="logo.svg" alt="Jiggy Logo"/>
+    </a>
+    <nav>
+    </nav>
+  </header>
+
+  <!-- Main Content -->
+  <div class="container">
+    <h1 id="header">Challenge <span>Video Feed</span></h1>
+    
+    <div class="video-container">
+      <div class="video-wrapper" id="yourCamera">
+        <p class="video-label">Your Camera</p>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+
+      <!-- Source video: Loaded from sessionStorage -->
+      <div class="video-wrapper" id="sourceVid">
+        <p class="video-label">Source</p>
+        <!-- Remove autoplay attribute here so we can control it -->
+        <video id="sourceVideo" playsinline controls>
+          <source id="videoSource" src="" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      
+      <div class="video-wrapper" id="friendCamera">
+        <p class="video-label">Friend's Camera</p>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
+    
+    <div id="invite">
+      <p>Invite link: <span id="inviteLink"></span></p>
+      <img src="copy.png" id="copyButton" class="copy-icon" alt="Copy Icon"/>
+    </div>
+  </div>
+
+  <!-- Load uploaded video from sessionStorage -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const videoUrl = sessionStorage.getItem("uploadedVideoUrl");
+      const videoSource = document.getElementById("videoSource");
+      const videoElement = document.getElementById("sourceVideo");
+      if (videoUrl) {
+        videoSource.src = videoUrl;
+        videoElement.load();
+      } else {
+        document.getElementById("sourceVid").style.display = "none";
+      }
+    });
+  </script>
+
+  <!-- Socket.IO and WebRTC Scripts -->
+  <script src="https://1025-2605-ad80-20-61fa-e8c8-d36a-17d7-77a6.ngrok-free.app/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io('https://1025-2605-ad80-20-61fa-e8c8-d36a-17d7-77a6.ngrok-free.app');
+    socket.emit('role', 'host');
+
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+    
+    // Add data channel for sending video data
+    const dataChannel = peerConnection.createDataChannel('videoData');
+    let isVideoSent = false;
+    console.log("Video sent status:", isVideoSent);
+    // Add error handling and verify channel state
+    dataChannel.onopen = () => {
+      console.log('Data channel opened - readyState:', dataChannel.readyState);
+      const videoData = sessionStorage.getItem("uploadedVideoUrl");
+      console.log("Video data:", videoData);
+      if (videoData && !isVideoSent) {
+        try {
+          dataChannel.send(videoData);
+          isVideoSent = true;
+          console.log('Video data successfully sent');
+        } catch (error) {
+          console.error('Error sending video data:', error);
+        }
+      }
+    };
+    
+    // Add error handler
+    dataChannel.onerror = (error) => {
+      console.error('Data channel error:', error);
+    };
+    
+    // Track channel state changes
+    dataChannel.onclose = () => {
+      console.log('Data channel closed');
+    };
+
+    console.log("Video sent status:", isVideoSent);
+    
+    // When a remote track is received, display it.
+    peerConnection.ontrack = event => {
+      document.getElementById('remoteVideo').srcObject = event.streams[0];
+    };
+
+    // ICE candidate handling.
+    peerConnection.onicecandidate = event => {
+      if (event.candidate) {
+        socket.emit('candidate', event.candidate);
+      }
+    };
+
+    // Handle offer from the client.
+    socket.on('offer', async offer => {
+      console.log('Received offer:', offer);
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      socket.emit('answer', answer);
+    });
+
+    // Handle incoming ICE candidates.
+    socket.on('candidate', candidate => {
+      peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
+    // Listen for "clientJoined" event to trigger autoplay of the source video.
+    socket.on('clientJoined', () => {
+      console.log("Client has joined; attempting to autoplay source video.");
+      const videoElement = document.getElementById("sourceVideo");
+      // Call play() to start playback.
+      videoElement.play().then(() => {
+        console.log("Source video playback started successfully");
+        // We'll handle stream capture in the startLocalVideo function
+      }).catch(error => {
+        console.error("Autoplay failed:", error);
+      });
+    });
+
+    // Generate the invite link (replace "host.html" with "client.html").
+    const inviteLinkElem = document.getElementById('inviteLink');
+    const currentUrl = window.location.href;
+    const inviteLink = currentUrl.replace("host.html", "client.html");
+    inviteLinkElem.textContent = inviteLink;
+
+    // Start local video for host and capture source video for streaming
+    const localVideo = document.getElementById('localVideo');
+    const sourceVideo = document.getElementById('sourceVideo');
+    
+    async function startLocalVideo() {
+      try {
+        // Get camera stream
+        const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        localVideo.srcObject = cameraStream;
+        
+        // Add camera tracks to peer connection
+        cameraStream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, cameraStream);
+        });
+        
+        // Capture the source video stream when it's playing
+        let sourceStream = null;
+        
+        // Define a function to capture and add the source video stream
+        const captureAndAddSourceStream = () => {
+          try {
+            console.log('Attempting to capture source video stream');
+            // Use the appropriate method based on browser support
+            if (sourceVideo.captureStream) {
+              sourceStream = sourceVideo.captureStream();
+            } else if (sourceVideo.mozCaptureStream) {
+              sourceStream = sourceVideo.mozCaptureStream();
+            } else if (sourceVideo.webkitCaptureStream) {
+              sourceStream = sourceVideo.webkitCaptureStream();
+            } else {
+              throw new Error('Video capture API not supported in this browser');
+            }
+            
+            // Verify we have tracks before adding them
+            if (sourceStream && sourceStream.getTracks().length > 0) {
+              console.log(`Captured ${sourceStream.getTracks().length} tracks from source video`);
+              sourceStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, sourceStream);
+                console.log(`Added ${track.kind} track from source video to peer connection`);
+              });
+            } else {
+              console.warn('Source stream capture returned no tracks');
+            }
+          } catch (err) {
+            console.error('Error capturing source video stream:', err);
+          }
+        };
+        
+        // Add event listener for when video starts playing
+        sourceVideo.addEventListener('playing', () => {
+          console.log('Source video is playing, capturing stream for WebRTC');
+          // Only capture if we haven't already or if the previous capture had no tracks
+          if (!sourceStream || sourceStream.getTracks().length === 0) {
+            captureAndAddSourceStream();
+          }
+        });
+        
+        // Handle client joined event
+        socket.on('clientJoined', () => {
+          console.log('Client joined, attempting to play source video');
+          // Try to play the video
+          sourceVideo.play()
+            .then(() => {
+              console.log('Source video playback started after client joined');
+              // If the video is already playing, the 'playing' event might not fire again
+              // so we need to capture the stream here too
+              if (!sourceStream || sourceStream.getTracks().length === 0) {
+                captureAndAddSourceStream();
+              }
+            })
+            .catch(err => {
+              console.error('Error playing source video after client joined:', err);
+            });
+        });
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+      }
+    }
+    
+    startLocalVideo();
+
+    // Copy invite link functionality.
+    const copyButton = document.getElementById('copyButton');
+    if (copyButton) {
+      copyButton.addEventListener('click', () => {
+        navigator.clipboard.writeText(inviteLink).then(() => {
+          console.log('Invite link copied!');
+        }).catch(err => {
+          console.error('Failed to copy text: ', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
+
+
